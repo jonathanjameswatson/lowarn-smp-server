@@ -1,0 +1,8 @@
+program-name: simplexmq
+unload: false
+system-linker: true
+version-package-subdirectory: retrofitted
+
+retrofit:
+  git: https://github.com/simplex-chat/simplexmq.git
+  branch: master

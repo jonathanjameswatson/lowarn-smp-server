@@ -1,0 +1,33 @@
+name:                lowarn-update-simplexmq-v282-v283
+version:             1.0.0
+github:              "lowarn-dsu/lowarn"
+license:             AGPL-3
+author:              "Jonathan Watson"
+# maintainer:
+copyright:           "2023 Jonathan Watson"
+
+dependencies:
+- base >= 4.7 && < 5
+- lowarn
+- lowarn-transformer
+- name: lowarn-version-simplexmq-v282
+  mixin:
+  - (Simplex.Messaging.Server.Env.STM as PreviousVersion.Simplex.Messaging.Server.Env.STM, Simplex.Messaging.Server.StoreLog as PreviousVersion.Simplex.Messaging.Server.StoreLog, Simplex.Messaging.Crypto as PreviousVersion.Simplex.Messaging.Crypto, Simplex.Messaging.Protocol as PreviousVersion.Simplex.Messaging.Protocol, Simplex.Messaging.Transport as PreviousVersion.Simplex.Messaging.Transport, Simplex.Messaging.Transport.WebSockets as PreviousVersion.Simplex.Messaging.Transport.WebSockets)
+- name: lowarn-version-simplexmq-v283
+  mixin:
+  - (Simplex.Messaging.Server.Env.STM as NextVersion.Simplex.Messaging.Server.Env.STM, Simplex.Messaging.Server.StoreLog as NextVersion.Simplex.Messaging.Server.StoreLog, Simplex.Messaging.Crypto as NextVersion.Simplex.Messaging.Crypto, Simplex.Messaging.Protocol as NextVersion.Simplex.Messaging.Protocol, Simplex.Messaging.Transport as NextVersion.Simplex.Messaging.Transport, Simplex.Messaging.Transport.WebSockets as NextVersion.Simplex.Messaging.Transport.WebSockets, EntryPoint_simplexmq as NextVersion.EntryPoint)
+- stm
+
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+
+library:
+  source-dirs: src

@@ -1,0 +1,42 @@
+cabal-version: 2.0
+
+-- This file has been generated from package.yaml by hpack version 0.35.2.
+--
+-- see: https://github.com/sol/hpack
+
+name:           lowarn-update-simplexmq-v336-v338
+version:        1.0.0
+homepage:       https://github.com/lowarn-dsu/lowarn#readme
+bug-reports:    https://github.com/lowarn-dsu/lowarn/issues
+author:         Jonathan Watson
+maintainer:     Jonathan Watson
+copyright:      2023 Jonathan Watson
+license:        AGPL-3
+license-file:   LICENSE
+build-type:     Simple
+
+source-repository head
+  type: git
+  location: https://github.com/lowarn-dsu/lowarn
+
+library
+  exposed-modules:
+      Update_simplexmq
+  other-modules:
+      Paths_lowarn_update_simplexmq_v336_v338
+  autogen-modules:
+      Paths_lowarn_update_simplexmq_v336_v338
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      base >=4.7 && <5
+    , lowarn
+    , lowarn-transformer
+    , lowarn-version-simplexmq-v336
+    , lowarn-version-simplexmq-v338
+    , stm
+  mixins:
+      lowarn-version-simplexmq-v336 (Simplex.Messaging.Server.Env.STM as PreviousVersion.Simplex.Messaging.Server.Env.STM, Simplex.Messaging.Server.StoreLog as PreviousVersion.Simplex.Messaging.Server.StoreLog, Simplex.Messaging.Crypto as PreviousVersion.Simplex.Messaging.Crypto, Simplex.Messaging.Protocol as PreviousVersion.Simplex.Messaging.Protocol, Simplex.Messaging.Transport as PreviousVersion.Simplex.Messaging.Transport, Simplex.Messaging.Transport.WebSockets as PreviousVersion.Simplex.Messaging.Transport.WebSockets)
+    , lowarn-version-simplexmq-v338 (Simplex.Messaging.Server.Env.STM as NextVersion.Simplex.Messaging.Server.Env.STM, Simplex.Messaging.Server.StoreLog as NextVersion.Simplex.Messaging.Server.StoreLog, Simplex.Messaging.Crypto as NextVersion.Simplex.Messaging.Crypto, Simplex.Messaging.Protocol as NextVersion.Simplex.Messaging.Protocol, Simplex.Messaging.Transport as NextVersion.Simplex.Messaging.Transport, Simplex.Messaging.Transport.WebSockets as NextVersion.Simplex.Messaging.Transport.WebSockets, EntryPoint_simplexmq as NextVersion.EntryPoint)
+  default-language: Haskell2010

@@ -1,0 +1,599 @@
+diff --git a/simplified/lowarn-version-simplexmq-v334.cabal b/retrofitted/lowarn-version-simplexmq-v334.cabal
+index ef78598..8fec940 100644
+--- a/simplified/lowarn-version-simplexmq-v334.cabal
++++ b/retrofitted/lowarn-version-simplexmq-v334.cabal
+@@ -31,6 +31,7 @@ flag swift
+ 
+ library
+   exposed-modules:
++      EntryPoint_simplexmq
+       Simplex.Messaging.Agent
+       Simplex.Messaging.Agent.Client
+       Simplex.Messaging.Agent.Env.SQLite
+@@ -99,6 +100,8 @@ library
+       Paths_lowarn_version_simplexmq_v334
+   hs-source-dirs:
+       src
++  default-extensions:
++      DeriveGeneric, DeriveAnyClass
+   ghc-options: -Wall -Wcompat -Werror=incomplete-patterns -Wredundant-constraints -Wincomplete-record-updates -Wincomplete-uni-patterns -Wunused-type-patterns
+   build-depends:
+       QuickCheck ==2.14.*
+@@ -126,6 +129,8 @@ library
+     , http2 ==4.1.*
+     , ini ==0.4.1
+     , iso8601-time ==0.1.*
++    , lowarn
++    , lowarn-transformer
+     , memory ==0.18.*
+     , mtl ==2.2.*
+     , network >=3.1.2.7 && <3.2
+diff --git a/simplified/package.yaml b/retrofitted/package.yaml
+index b2bdad8..3d99bd9 100644
+--- a/simplified/package.yaml
++++ b/retrofitted/package.yaml
+@@ -68,6 +68,8 @@ dependencies:
+   - x509 == 1.7.*
+   - x509-store == 1.6.*
+   - x509-validation == 1.6.*
++  - lowarn
++  - lowarn-transformer
+ 
+ flags:
+   swift:
+@@ -92,3 +94,5 @@ ghc-options:
+   - -Wincomplete-record-updates
+   - -Wincomplete-uni-patterns
+   - -Wunused-type-patterns
++
++default-extensions: DeriveGeneric, DeriveAnyClass
+diff --git a/retrofitted/src/EntryPoint_simplexmq.hs b/retrofitted/src/EntryPoint_simplexmq.hs
+new file mode 100644
+index 0000000..31c19a2
+--- /dev/null
++++ b/retrofitted/src/EntryPoint_simplexmq.hs
+@@ -0,0 +1,79 @@
++{-# LANGUAGE OverloadedLists #-}
++{-# LANGUAGE TemplateHaskell #-}
++{-# LANGUAGE TypeApplications #-}
++
++module EntryPoint_simplexmq (entryPoint) where
++
++import Control.Concurrent.STM
++import Control.Monad.Reader
++import Data.X509.Validation
++import Lowarn
++import Lowarn.TH
++import Simplex.Messaging.Agent.Protocol hiding (smpServer)
++import qualified Simplex.Messaging.Crypto as C
++import Simplex.Messaging.Server
++import Simplex.Messaging.Server.CLI
++import Simplex.Messaging.Server.Env.STM
++import Simplex.Messaging.Transport
++import Simplex.Messaging.Transport.Client hiding (logTLSErrors)
++import Simplex.Messaging.Transport.Server
++import System.FilePath
++
++cfgPath :: FilePath
++cfgPath = "/etc/opt/simplex"
++
++c :: (X509Config -> FilePath) -> FilePath
++c = combine cfgPath . ($ defaultX509Config)
++
++cfg :: ServerConfig
++cfg =
++  ServerConfig
++    { transports = [("5223", transport @TLS)],
++      tbqSize = 32,
++      serverTbqSize = 128,
++      msgQueueQuota = 128,
++      queueIdBytes = 24,
++      msgIdBytes = 24,
++      caCertificateFile = c caCrtFile,
++      privateKeyFile = c serverKeyFile,
++      certificateFile = c serverCrtFile,
++      storeLogFile = Nothing,
++      storeMsgsFile = Nothing,
++      allowNewQueues = True,
++      newQueueBasicAuth = Nothing,
++      messageExpiration = Just defaultMessageExpiration,
++      inactiveClientExpiration = Nothing,
++      logStatsInterval = Nothing,
++      logStatsStartTime = 0,
++      serverStatsLogFile = "/dev/null",
++      serverStatsBackupFile = Nothing,
++      smpServerVRange = supportedSMPServerVRange,
++      logTLSErrors = False
++    }
++
++serverVersion :: String
++serverVersion = "SMP server v" <> simplexMQVersion
++
++entryPoint :: EntryPoint Env
++entryPoint = EntryPoint $
++  \runtimeData -> do
++    started <- newEmptyTMVarIO
++    env <- case lastState runtimeData of
++      Nothing -> do
++        Fingerprint fp <- loadFingerprint (c caCrtFile)
++        let srv =
++              ProtoServerWithAuth
++                ( SMPServer
++                    [THDomainName "localhost"]
++                    "5223"
++                    (C.KeyHash fp)
++                )
++                (newQueueBasicAuth cfg)
++        printServiceInfo serverVersion srv
++        printServerConfig (transports cfg) (storeLogFile cfg)
++        newEnv cfg
++      Just e -> return e
++    runReaderT (smpServer (Just runtimeData) started cfg) env
++    return env
++
++entryPointExportDeclarations 'entryPoint
+diff --git a/simplified/src/Simplex/Messaging/Crypto.hs b/retrofitted/src/Simplex/Messaging/Crypto.hs
+index 6b56a78..e809a6c 100644
+--- a/simplified/src/Simplex/Messaging/Crypto.hs
++++ b/retrofitted/src/Simplex/Messaging/Crypto.hs
+@@ -175,6 +175,10 @@ import Simplex.Messaging.Encoding.String
+ import Simplex.Messaging.Parsers (blobFieldDecoder, parseAll, parseString)
+ import Simplex.Messaging.Util ((<$?>))
+ 
++import Lowarn.Transformer (HasDatatypeInfo)
++import qualified Lowarn.Transformer as SOP (Generic)
++import GHC.Generics (Generic)
++
+ -- | Cryptographic algorithms.
+ data Algorithm = Ed25519 | Ed448 | X25519 | X448
+ 
+@@ -756,7 +760,7 @@ instance Encoding AuthTag where
+ -- | Certificate fingerpint newtype.
+ --
+ -- Previously was used for server's public key hash in ad-hoc transport scheme, kept as is for compatibility.
+-newtype KeyHash = KeyHash {unKeyHash :: ByteString} deriving (Eq, Ord, Show)
++newtype KeyHash = KeyHash {unKeyHash :: ByteString} deriving (Eq, Ord, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ instance Encoding KeyHash where
+   smpEncode = smpEncode . unKeyHash
+@@ -826,6 +830,7 @@ unPad padded
+     len = fromIntegral $ decodeWord16 lenWrd
+ 
+ newtype MaxLenBS (i :: Nat) = MLBS {unMaxLenBS :: ByteString}
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ pattern MaxLenBS :: ByteString -> MaxLenBS i
+ pattern MaxLenBS s <- MLBS s
+@@ -939,7 +944,7 @@ cbDecrypt secret (CbNonce nonce) packet
+     tag = Poly1305.auth rs c
+ 
+ newtype CbNonce = CbNonce {unCbNonce :: ByteString}
+-  deriving (Eq, Show)
++  deriving (Eq, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ instance StrEncoding CbNonce where
+   strEncode (CbNonce s) = strEncode s
+diff --git a/simplified/src/Simplex/Messaging/Protocol.hs b/retrofitted/src/Simplex/Messaging/Protocol.hs
+index 0263e37..273376f 100644
+--- a/simplified/src/Simplex/Messaging/Protocol.hs
++++ b/retrofitted/src/Simplex/Messaging/Protocol.hs
+@@ -163,6 +163,9 @@ import Simplex.Messaging.Util (bshow, (<$?>))
+ import Simplex.Messaging.Version
+ import Test.QuickCheck (Arbitrary (..))
+ 
++import Lowarn.Transformer (HasDatatypeInfo)
++import qualified Lowarn.Transformer as SOP (Generic)
++
+ currentSMPClientVersion :: Version
+ currentSMPClientVersion = 2
+ 
+@@ -293,7 +296,7 @@ data BrokerMsg where
+   OK :: BrokerMsg
+   ERR :: ErrorType -> BrokerMsg
+   PONG :: BrokerMsg
+-  deriving (Eq, Show)
++  deriving (Eq, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ data RcvMessage = RcvMessage
+   { msgId :: MsgId,
+@@ -301,7 +304,7 @@ data RcvMessage = RcvMessage
+     msgFlags :: MsgFlags,
+     msgBody :: EncRcvMsgBody -- e2e encrypted, with extra encryption for recipient
+   }
+-  deriving (Eq, Show)
++  deriving (Eq, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ -- | received message without server/recipient encryption
+ data Message
+@@ -315,6 +318,7 @@ data Message
+       { msgId :: MsgId,
+         msgTs :: SystemTime
+       }
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ instance StrEncoding RcvMessage where
+   strEncode RcvMessage {msgId, msgTs, msgFlags, msgBody = EncRcvMsgBody body} =
+@@ -332,7 +336,7 @@ instance StrEncoding RcvMessage where
+     pure RcvMessage {msgId, msgTs, msgFlags, msgBody}
+ 
+ newtype EncRcvMsgBody = EncRcvMsgBody ByteString
+-  deriving (Eq, Show)
++  deriving (Eq, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ data RcvMsgBody
+   = RcvMsgBody
+@@ -431,7 +435,7 @@ instance Encoding NMsgMeta where
+ 
+ -- it must be data for correct JSON encoding
+ data MsgFlags = MsgFlags {notification :: Bool}
+-  deriving (Eq, Show, Generic)
++  deriving (Eq, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ instance ToJSON MsgFlags where toEncoding = J.genericToEncoding J.defaultOptions
+ 
+@@ -726,7 +730,7 @@ instance ProtocolTypeI p => ToJSON (ProtocolServer p) where
+   toEncoding = strToJEncoding
+ 
+ newtype BasicAuth = BasicAuth {unBasicAuth :: ByteString}
+-  deriving (Eq, Show)
++  deriving (Eq, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ instance IsString BasicAuth where fromString = BasicAuth . B.pack
+ 
+@@ -807,7 +811,7 @@ instance StrEncoding SrvLoc where
+       port = show <$> (A.char ':' *> (A.decimal :: Parser Int))
+ 
+ -- | Transmission correlation ID.
+-newtype CorrId = CorrId {bs :: ByteString} deriving (Eq, Ord, Show)
++newtype CorrId = CorrId {bs :: ByteString} deriving (Eq, Ord, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ instance IsString CorrId where
+   fromString = CorrId . fromString
+@@ -827,7 +831,7 @@ data QueueIdsKeys = QIK
+     sndId :: SenderId,
+     rcvPublicDhKey :: RcvPublicDhKey
+   }
+-  deriving (Eq, Show)
++  deriving (Eq, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ -- | Recipient's private key used by the recipient to authorize (sign) SMP commands.
+ --
+@@ -889,7 +893,7 @@ data ErrorType
+     INTERNAL
+   | -- | used internally, never returned by the server (to be removed)
+     DUPLICATE_ -- not part of SMP protocol, used internally
+-  deriving (Eq, Generic, Read, Show)
++  deriving (Eq, Generic, Read, Show, SOP.Generic, HasDatatypeInfo)
+ 
+ instance ToJSON ErrorType where
+   toJSON = J.genericToJSON $ sumTypeJSON id
+@@ -915,7 +919,7 @@ data CommandError
+     HAS_AUTH
+   | -- | transmission has no required entity ID (e.g. SMP queue)
+     NO_ENTITY
+-  deriving (Eq, Generic, Read, Show)
++  deriving (Eq, Generic, Read, Show, SOP.Generic, HasDatatypeInfo)
+ 
+ instance ToJSON CommandError where
+   toJSON = J.genericToJSON $ sumTypeJSON id
+diff --git a/simplified/src/Simplex/Messaging/Server/Env/STM.hs b/retrofitted/src/Simplex/Messaging/Server/Env/STM.hs
+index 15253fe..43ad79c 100644
+--- a/simplified/src/Simplex/Messaging/Server/Env/STM.hs
++++ b/retrofitted/src/Simplex/Messaging/Server/Env/STM.hs
+@@ -35,6 +35,10 @@ import System.IO (IOMode (..))
+ import System.Mem.Weak (Weak)
+ import UnliftIO.STM
+ 
++import Lowarn.Transformer (HasDatatypeInfo)
++import qualified Lowarn.Transformer as SOP (Generic)
++import GHC.Generics (Generic)
++
+ data ServerConfig = ServerConfig
+   { transports :: [(ServiceName, ATransport)],
+     tbqSize :: Natural,
+@@ -70,6 +74,7 @@ data ServerConfig = ServerConfig
+     smpServerVRange :: VersionRange,
+     logTLSErrors :: Bool
+   }
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ defaultMessageExpiration :: ExpirationConfig
+ defaultMessageExpiration =
+@@ -96,6 +101,7 @@ data Env = Env
+     tlsServerParams :: T.ServerParams,
+     serverStats :: ServerStats
+   }
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ data Server = Server
+   { subscribedQ :: TBQueue (RecipientId, Client),
+@@ -103,6 +109,7 @@ data Server = Server
+     ntfSubscribedQ :: TBQueue (NotifierId, Client),
+     notifiers :: TMap NotifierId Client
+   }
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ data Client = Client
+   { subscriptions :: TMap RecipientId (TVar Sub),
+@@ -114,13 +121,16 @@ data Client = Client
+     connected :: TVar Bool,
+     activeAt :: TVar SystemTime
+   }
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ data SubscriptionThread = NoSub | SubPending | SubThread (Weak ThreadId) | ProhibitSub
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ data Sub = Sub
+   { subThread :: SubscriptionThread,
+     delivered :: TMVar MsgId
+   }
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ newServer :: Natural -> STM Server
+ newServer qSize = do
+diff --git a/simplified/src/Simplex/Messaging/Server/Expiration.hs b/retrofitted/src/Simplex/Messaging/Server/Expiration.hs
+index 8f369d5..b875a34 100644
+--- a/simplified/src/Simplex/Messaging/Server/Expiration.hs
++++ b/retrofitted/src/Simplex/Messaging/Server/Expiration.hs
+@@ -6,12 +6,17 @@ import Control.Monad.IO.Class
+ import Data.Int (Int64)
+ import Data.Time.Clock.System (SystemTime (..), getSystemTime)
+ 
++import Lowarn.Transformer (HasDatatypeInfo)
++import qualified Lowarn.Transformer as SOP (Generic)
++import GHC.Generics (Generic)
++
+ data ExpirationConfig = ExpirationConfig
+   { -- time after which the entity can be expired, seconds
+     ttl :: Int64,
+     -- interval to check expiration, seconds
+     checkInterval :: Int
+   }
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ expireBeforeEpoch :: ExpirationConfig -> IO Int64
+ expireBeforeEpoch ExpirationConfig {ttl} = subtract ttl . systemSeconds <$> liftIO getSystemTime
+diff --git a/simplified/src/Simplex/Messaging/Server/MsgStore/STM.hs b/retrofitted/src/Simplex/Messaging/Server/MsgStore/STM.hs
+index e9dd95e..970df8b 100644
+--- a/simplified/src/Simplex/Messaging/Server/MsgStore/STM.hs
++++ b/retrofitted/src/Simplex/Messaging/Server/MsgStore/STM.hs
+@@ -33,12 +33,17 @@ import Simplex.Messaging.TMap (TMap)
+ import qualified Simplex.Messaging.TMap as TM
+ import UnliftIO.STM
+ 
++import Lowarn.Transformer (HasDatatypeInfo)
++import qualified Lowarn.Transformer as SOP (Generic)
++import GHC.Generics (Generic)
++
+ data MsgQueue = MsgQueue
+   { msgQueue :: TQueue Message,
+     quota :: Int,
+     canWrite :: TVar Bool,
+     size :: TVar Int
+   }
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ type STMMsgStore = TMap RecipientId MsgQueue
+ 
+diff --git a/simplified/src/Simplex/Messaging/Server/QueueStore/STM.hs b/retrofitted/src/Simplex/Messaging/Server/QueueStore/STM.hs
+index b4c41c0..2567577 100644
+--- a/simplified/src/Simplex/Messaging/Server/QueueStore/STM.hs
++++ b/retrofitted/src/Simplex/Messaging/Server/QueueStore/STM.hs
+@@ -31,11 +31,16 @@ import qualified Simplex.Messaging.TMap as TM
+ import Simplex.Messaging.Util (ifM, ($>>=))
+ import UnliftIO.STM
+ 
++import Lowarn.Transformer (HasDatatypeInfo)
++import qualified Lowarn.Transformer as SOP (Generic)
++import GHC.Generics (Generic)
++
+ data QueueStore = QueueStore
+   { queues :: TMap RecipientId (TVar QueueRec),
+     senders :: TMap SenderId RecipientId,
+     notifiers :: TMap NotifierId RecipientId
+   }
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ newQueueStore :: STM QueueStore
+ newQueueStore = do
+diff --git a/simplified/src/Simplex/Messaging/Server/QueueStore.hs b/retrofitted/src/Simplex/Messaging/Server/QueueStore.hs
+index 8a7856e..60cf7c9 100644
+--- a/simplified/src/Simplex/Messaging/Server/QueueStore.hs
++++ b/retrofitted/src/Simplex/Messaging/Server/QueueStore.hs
+@@ -8,6 +8,10 @@ module Simplex.Messaging.Server.QueueStore where
+ import Simplex.Messaging.Encoding.String
+ import Simplex.Messaging.Protocol
+ 
++import Lowarn.Transformer (HasDatatypeInfo)
++import qualified Lowarn.Transformer as SOP (Generic)
++import GHC.Generics (Generic)
++
+ data QueueRec = QueueRec
+   { recipientId :: !RecipientId,
+     recipientKey :: !RcvPublicVerifyKey,
+@@ -17,14 +21,14 @@ data QueueRec = QueueRec
+     notifier :: !(Maybe NtfCreds),
+     status :: !ServerQueueStatus
+   }
+-  deriving (Eq, Show)
++  deriving (Eq, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ data NtfCreds = NtfCreds
+   { notifierId :: !NotifierId,
+     notifierKey :: !NtfPublicVerifyKey,
+     rcvNtfDhSecret :: !RcvNtfDhSecret
+   }
+-  deriving (Eq, Show)
++  deriving (Eq, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ instance StrEncoding NtfCreds where
+   strEncode NtfCreds {notifierId, notifierKey, rcvNtfDhSecret} = strEncode (notifierId, notifierKey, rcvNtfDhSecret)
+@@ -32,4 +36,4 @@ instance StrEncoding NtfCreds where
+     (notifierId, notifierKey, rcvNtfDhSecret) <- strP
+     pure NtfCreds {notifierId, notifierKey, rcvNtfDhSecret}
+ 
+-data ServerQueueStatus = QueueActive | QueueOff deriving (Eq, Show)
++data ServerQueueStatus = QueueActive | QueueOff deriving (Eq, Show, Generic, SOP.Generic, HasDatatypeInfo)
+diff --git a/simplified/src/Simplex/Messaging/Server/Stats.hs b/retrofitted/src/Simplex/Messaging/Server/Stats.hs
+index b462eaf..50bce09 100644
+--- a/simplified/src/Simplex/Messaging/Server/Stats.hs
++++ b/retrofitted/src/Simplex/Messaging/Server/Stats.hs
+@@ -18,6 +18,10 @@ import Simplex.Messaging.Encoding.String
+ import Simplex.Messaging.Protocol (RecipientId)
+ import UnliftIO.STM
+ 
++import Lowarn.Transformer (HasDatatypeInfo)
++import qualified Lowarn.Transformer as SOP (Generic)
++import GHC.Generics (Generic)
++
+ data ServerStats = ServerStats
+   { fromTime :: TVar UTCTime,
+     qCreated :: TVar Int,
+@@ -32,6 +36,7 @@ data ServerStats = ServerStats
+     qCount :: TVar Int,
+     msgCount :: TVar Int
+   }
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ data ServerStatsData = ServerStatsData
+   { _fromTime :: UTCTime,
+@@ -140,6 +145,7 @@ data PeriodStats a = PeriodStats
+     week :: TVar (Set a),
+     month :: TVar (Set a)
+   }
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ newPeriodStats :: STM (PeriodStats a)
+ newPeriodStats = do
+diff --git a/simplified/src/Simplex/Messaging/Server.hs b/retrofitted/src/Simplex/Messaging/Server.hs
+index e5cb7f9..90242ca 100644
+--- a/simplified/src/Simplex/Messaging/Server.hs
++++ b/retrofitted/src/Simplex/Messaging/Server.hs
+@@ -31,6 +31,7 @@ module Simplex.Messaging.Server
+     disconnectTransport,
+     verifyCmdSignature,
+     dummyVerifyCmd,
++    smpServer
+   )
+ where
+ 
+@@ -84,6 +85,8 @@ import UnliftIO.Exception
+ import UnliftIO.IO
+ import UnliftIO.STM
+ 
++import Lowarn
++
+ -- | Runs an SMP server using passed configuration.
+ --
+ -- See a full server here: https://github.com/simplex-chat/simplexmq/blob/master/apps/smp-server/Main.hs
+@@ -97,19 +100,19 @@ runSMPServer cfg = do
+ -- This function uses passed TMVar to signal when the server is ready to accept TCP requests (True)
+ -- and when it is disconnected from the TCP socket once the server thread is killed (False).
+ runSMPServerBlocking :: TMVar Bool -> ServerConfig -> IO ()
+-runSMPServerBlocking started cfg = newEnv cfg >>= runReaderT (smpServer started cfg)
++runSMPServerBlocking started cfg = newEnv cfg >>= runReaderT (smpServer Nothing started cfg)
+ 
+ type M a = ReaderT Env IO a
+ 
+-smpServer :: TMVar Bool -> ServerConfig -> M ()
+-smpServer started cfg@ServerConfig {transports, logTLSErrors} = do
++smpServer :: Maybe (RuntimeData Env) -> TMVar Bool -> ServerConfig -> M ()
++smpServer mRuntimeData started cfg@ServerConfig {transports, logTLSErrors} = do
+   s <- asks server
+   restoreServerMessages
+   restoreServerStats
+   raceAny_
+     ( serverThread s subscribedQ subscribers subscriptions cancelSub :
+       serverThread s ntfSubscribedQ notifiers ntfSubscriptions (\_ -> pure ()) :
+-      map runServer transports <> expireMessagesThread_ cfg <> serverStatsThread_ cfg
++      map runServer transports <> expireMessagesThread_ cfg <> serverStatsThread_ cfg <> updateThread
+     )
+     `finally` (withLog closeStoreLog >> saveServerMessages >> saveServerStats)
+   where
+@@ -222,6 +225,11 @@ smpServer started cfg@ServerConfig {transports, logTLSErrors} = do
+         Right th -> runClientTransport th
+         Left _ -> pure ()
+ 
++    updateThread :: [M ()]
++    updateThread = case mRuntimeData of
++      Just runtimeData -> [liftIO $ waitForUpdate runtimeData]
++      Nothing -> []
++
+ runClientTransport :: Transport c => THandle c -> M ()
+ runClientTransport th@THandle {thVersion, sessionId} = do
+   q <- asks $ tbqSize . config
+diff --git a/simplified/src/Simplex/Messaging/Transport.hs b/retrofitted/src/Simplex/Messaging/Transport.hs
+index 0b2c8ad..73336b0 100644
+--- a/simplified/src/Simplex/Messaging/Transport.hs
++++ b/retrofitted/src/Simplex/Messaging/Transport.hs
+@@ -93,6 +93,10 @@ import UnliftIO.Exception (Exception)
+ import qualified UnliftIO.Exception as E
+ import UnliftIO.STM
+ 
++import Lowarn.Transformer (HasDatatypeInfo)
++import qualified Lowarn.Transformer as SOP (Generic)
++import Type.Reflection
++
+ -- * Transport parameters
+ 
+ smpBlockSize :: Int
+@@ -106,9 +110,9 @@ simplexMQVersion = showVersion SMQ.version
+ 
+ -- * Transport connection class
+ 
+-class Transport c where
++class Typeable c => Transport c where
+   transport :: ATransport
+-  transport = ATransport (TProxy @c)
++  transport = ATransport (TProxy $ typeRep @c)
+ 
+   transportName :: TProxy c -> String
+ 
+@@ -140,11 +144,11 @@ class Transport c where
+   putLn c = cPut c . (<> "\r\n")
+ 
+ data TransportPeer = TClient | TServer
+-  deriving (Eq, Show)
++  deriving (Eq, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+-data TProxy c = TProxy
++newtype TProxy c = TProxy (TypeRep c)
+ 
+-data ATransport = forall c. Transport c => ATransport (TProxy c)
++data ATransport = forall c. (Transport c, Typeable c) => ATransport (TProxy c)
+ 
+ -- * TLS Transport
+ 
+@@ -155,6 +159,7 @@ data TLS = TLS
+     buffer :: TVar ByteString,
+     getLock :: TMVar ()
+   }
++  deriving (Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ connectTLS :: T.TLSParams p => Maybe HostName -> Bool -> p -> Socket -> IO T.Context
+ connectTLS host_ logErrors params sock =
+diff --git a/simplified/src/Simplex/Messaging/Version.hs b/retrofitted/src/Simplex/Messaging/Version.hs
+index 276352f..08ee375 100644
+--- a/simplified/src/Simplex/Messaging/Version.hs
++++ b/retrofitted/src/Simplex/Messaging/Version.hs
+@@ -30,6 +30,10 @@ import Simplex.Messaging.Encoding
+ import Simplex.Messaging.Encoding.String
+ import Simplex.Messaging.Util ((<$?>))
+ 
++import Lowarn.Transformer (HasDatatypeInfo)
++import qualified Lowarn.Transformer as SOP (Generic)
++import GHC.Generics (Generic)
++
+ pattern VersionRange :: Word16 -> Word16 -> VersionRange
+ pattern VersionRange v1 v2 <- VRange v1 v2
+ 
+@@ -41,7 +45,7 @@ data VersionRange = VRange
+   { minVersion :: Version,
+     maxVersion :: Version
+   }
+-  deriving (Eq, Show)
++  deriving (Eq, Show, Generic, SOP.Generic, HasDatatypeInfo)
+ 
+ -- | construct valid version range, to be used in constants
+ mkVersionRange :: Version -> Version -> VersionRange
