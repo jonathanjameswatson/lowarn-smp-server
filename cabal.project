@@ -10,25 +10,25 @@ package *
 source-repository-package
   type: git
   location: https://github.com/lowarn-dsu/lowarn.git
-  tag: f60f7c746e0986ac7d6b2b34092b33fa6e5096db
+  tag: ef53cf5af124fae2fe95b0c4cd64ec5c27895430
   subdir: core
 
 source-repository-package
   type: git
   location: https://github.com/lowarn-dsu/lowarn.git
-  tag: f60f7c746e0986ac7d6b2b34092b33fa6e5096db
+  tag: ef53cf5af124fae2fe95b0c4cd64ec5c27895430
   subdir: inject
 
 source-repository-package
   type: git
   location: https://github.com/lowarn-dsu/lowarn.git
-  tag: f60f7c746e0986ac7d6b2b34092b33fa6e5096db
+  tag: ef53cf5af124fae2fe95b0c4cd64ec5c27895430
   subdir: runtime
 
 source-repository-package
   type: git
   location: https://github.com/lowarn-dsu/lowarn.git
-  tag: f60f7c746e0986ac7d6b2b34092b33fa6e5096db
+  tag: ef53cf5af124fae2fe95b0c4cd64ec5c27895430
   subdir: transformer
 
 source-repository-package
